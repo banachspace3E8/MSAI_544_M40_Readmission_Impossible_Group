@@ -323,8 +323,9 @@ print("Analysis 2 complete")
 # ANALYSIS 3: UTILIZATION & CLINICAL FACTORS
 # ==============================================================================
 
-
-from pathlib import Path
+print("\n" + "=" * 70)
+print(" " * 15 + "ANALYSIS 3: UTILIZATION & CLINICAL FACTORS")
+print("=" * 70)
 
 
 util_cols = [
@@ -432,7 +433,9 @@ fig3.show()
 # ==============================================================================
 # ANALYSIS 4: DIAGNOSES & MEDICATIONS
 # ==============================================================================
-
+print("\n" + "=" * 70)
+print(" " * 15 + "ANALYSIS 4: DIAGNOSES & MEDICATIONS")
+print("=" * 70)
 
 def icd9_group(code):
     if pd.isna(code) or str(code) in ('Unknown', 'Missing'):
@@ -597,6 +600,9 @@ fig4.show()
 # ANALYSIS 5: FEATURE ENGINEERING
 # ==============================================================================
 
+print("\n" + "=" * 70)
+print(" " * 15 + "ANALYSIS 5: FEATURE ENGINEERING")
+print("=" * 70)
 
 admission_codes = (
     ids.loc[ids['id_type'] == 'admission_type_id']
@@ -863,6 +869,9 @@ fig5.show()
 # ANALYSIS 6: BASELINE MODEL
 # ==============================================================================
 
+print("\n" + "=" * 70)
+print(" " * 15 + "ANALYSIS 6: BASELINE MODEL (LOGISTIC REGRESSION)")
+print("=" * 70)
 
 X_train, X_test, y_train, y_test = train_test_split(
     X,
