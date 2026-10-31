@@ -1,3 +1,4 @@
+# %%
 """
 GROUP PROJECT: Hospital Readmission Risk - An End-to-End Clinical AI Solution
 Group Project - Starter Code (Python)
@@ -6,8 +7,8 @@ Saturday: 10 hours work time
 MSAI-544 Application of AI in Healthcare - Residency Group Project
 
 TEAM INFORMATION:
-Team Name: _______________________
-Members:   _______________________
+Team Name: _________Readmission Impossible______________
+Members:   ________Shishir Khanal, Shiva Sai Reddy Gayam, Ruthvik Reddy Rakashi, Rexford Essilfie, Rahul Motha_______________
 
 DELIVERABLES CHECKLIST:
 [ ] Interactive dashboard (HTML / notebook)
@@ -20,6 +21,7 @@ AI TOOL POLICY: AI tools may be used for debugging, ideating and report/slide cl
 never to write code. Disclose all use (with screenshots) in the technical report.
 """
 
+# %%
 # ==============================================================================
 # SETUP & IMPORTS
 # ==============================================================================
@@ -46,13 +48,16 @@ RANDOM_STATE = 42
 # Professional color palette: use consistently across every chart
 BLUE, RED, GREEN, GRAY, PURPLE = '#3498db', '#e74c3c', '#2ecc71', '#95a5a6', '#9b59b6'
 
+TEAM_NAME = 'Readmission Impossible'
+
 print("=" * 70)
 print(" " * 12 + "HOSPITAL READMISSION RISK: END-TO-END CLINICAL AI")
 print("=" * 70)
-print("Team: [YOUR TEAM NAME]")
+print(f"Team: {TEAM_NAME}")
 print(f"Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 70)
 
+# %%
 # ==============================================================================
 # DATA LOADING
 # ==============================================================================
@@ -69,6 +74,7 @@ print(f"Unique patients: {df['patient_nbr'].nunique():,}")
 print("\nColumn names:")
 print(df.columns.tolist())
 
+# %%
 # ==============================================================================
 # DATA EXPLORATION
 # ==============================================================================
@@ -94,6 +100,7 @@ print(df[['time_in_hospital', 'num_lab_procedures', 'num_procedures', 'num_medic
 print("\nID code descriptions (first rows):")
 print(ids.head(10).to_string(index=False))
 
+# %%
 # ==============================================================================
 # ANALYSIS 1: DATA QUALITY & COHORT DEFINITION
 # ==============================================================================
@@ -102,13 +109,16 @@ print("\n" + "=" * 70)
 print(" " * 15 + "ANALYSIS 1: DATA QUALITY & COHORT DEFINITION")
 print("=" * 70)
 
+steps = []
+
 n0 = len(df)
+steps.append(("initial_dataset", n0))
 
 # 1a. Drop unusable columns: weight is 97% missing; examide and citoglipton are never prescribed
 df = df.drop(columns=['weight', 'examide', 'citoglipton'])
 print("Dropped weight, examide, citoglipton")
 
-# 1b. TODO: Handle repeated patients
+# 1b. Handle repeated patients
 # Many patients have several encounters. Rows from the same patient are NOT independent:
 # if one encounter lands in the training set and another in the test set, the model has
 # effectively seen the test patient. Decision options:
@@ -117,34 +127,60 @@ print("Dropped weight, examide, citoglipton")
 #   Option C: keep all encounters and ignore the issue (NOT acceptable; explain why in report)
 # Hint for Option A: df.sort_values('encounter_id').drop_duplicates('patient_nbr', keep='first')
 
-# YOUR DECISION HERE:
-
+# YOUR DECISION HERE: Option B, since we can have more accurate result by considering more of the picture. Picking only the first encounter may miss later readmission result.
+df = df.sort_values('encounter_id').drop_duplicates('patient_nbr', keep='first')
 
 
 n1 = len(df)
+steps.append(("dropped_duplicates", n1))
 
-# 1c. TODO: Exclude encounters where readmission is impossible or undefined
+
+# %%
+# 1c. Exclude encounters where readmission is impossible or undefined
 # Look up discharge_disposition_id descriptions in `ids`. Patients who died or went to
 # hospice cannot be readmitted. Decide what else, if anything, to exclude and justify it.
 disch = ids[ids['id_type'] == 'discharge_disposition_id'].set_index('id')['description']
-print("\nDischarge dispositions:\n", disch.to_string())
+# print("\nDischarge dispositions:\n", disch.to_string())
 
 # YOUR DECISION HERE:
+# Encounters where readmission is impossible or undefined will be ones where the patient is either expired, or went to hospice 
+# 11: Expired,
+# 13: Hospice / home,
+# 14: Hospice / medical facility,
+# 19: Expired at home. Medicaid only, hospice., 
+# 20: Expired in a medical facility. Medicaid only, hospice., 
+# 21: Expired, place unknown. Medicaid only, hospice.
+# 25: Not Mapped, 
+# 26: Unknown/Invalid
 
-
+df = df[~df['discharge_disposition_id'].isin([11, 13, 14, 19, 20, 21, 25, 26])]
 
 n2 = len(df)
+steps.append(('exclude_impossible_readmissions', n2))
 
+# %%
 # 1d. TODO: Handle remaining missing values (race, payer_code, medical_specialty, diag_1/2/3,
 #     A1Cresult, max_glu_serum). Missing is often informative in clinical data ("not tested").
 #     Decide: drop rows, fill with "Unknown"/"Missing", or treat as its own category.
 
 # YOUR DECISION HERE:
+ 
+# Making missing values into own category
+df['A1Cresult'] = df['A1Cresult'].fillna("not tested")
+df['max_glu_serum'] = df['max_glu_serum'].fillna("not tested")
 
+df['payer_code'] = df['payer_code'].fillna("Missing")
+df['medical_specialty'] = df['medical_specialty'].fillna("Unknown")
+
+df['diag_1'] = df['diag_1'].fillna("Unknown")
+df['diag_2'] = df['diag_2'].fillna("Unknown")
+df['diag_3'] = df['diag_3'].fillna("Unknown")
 
 
 n3 = len(df)
+steps.append(("missing_values", n3))
 
+# %%
 # 1e. Define the target: readmitted within 30 days
 df['readmit_30'] = (df['readmitted'] == '<30').astype(int)
 print(f"\nCohort: {n3:,} rows; 30-day readmission rate = {df['readmit_30'].mean():.3%}")
@@ -153,10 +189,32 @@ print(f"\nCohort: {n3:,} rows; 30-day readmission rate = {df['readmit_30'].mean(
 #       Plot it as a funnel chart (go.Funnel) and save as 'analysis1_cohort_funnel.html'.
 # Expected (Option A with expired/hospice excluded): roughly 101,766 -> 71,500 -> 70,000 rows, ~9% positive
 
+print(steps)
+
+
+cohort = pd.DataFrame(steps, columns=["step", "rows_remaining"])
+cohort.to_csv("cohort_definition.csv", index=False)
+
+fig = go.Figure(go.Funnel(y=cohort["step"], x=cohort["rows_remaining"],
+                          textinfo="value+percent initial"))
+fig.write_html("analysis1_cohort_funnel.html")
+
+
+# Plot funnel chart
+fig = go.Figure(go.Funnel(
+    y=cohort['step'],
+    x=cohort['rows_remaining'],
+    textinfo="value+percent initial",
+    marker={"color": ["deepskyblue", "lightsalmon", "tan"]},
+    textposition="inside"
+))
+fig.update_layout(title_text="Cohort Funnel", title_x=0.5)
+fig.write_html("analysis1_cohort_funnel.html")
 
 
 print("Analysis 1 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 2: DEMOGRAPHICS & READMISSION RATES
 # ==============================================================================
@@ -196,6 +254,7 @@ fig2.write_html('analysis2_demographics.html')
 
 print("Analysis 2 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 3: UTILIZATION & CLINICAL FACTORS
 # ==============================================================================
@@ -226,6 +285,7 @@ print("\nBy prior inpatient visits:\n", inp_t.round(3))
 
 print("Analysis 3 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 4: DIAGNOSES & MEDICATIONS
 # ==============================================================================
@@ -279,6 +339,7 @@ df['n_diabetes_meds'] = (df[MED_COLS] != 'No').sum(axis=1)
 
 print("Analysis 4 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 5: FEATURE ENGINEERING
 # ==============================================================================
@@ -325,6 +386,7 @@ feat['age_num'] = df['age'].str.extract(r'\[(\d+)').astype(int)[0] + 5
 
 print("Analysis 5 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 6: BASELINE MODEL
 # ==============================================================================
@@ -384,6 +446,7 @@ fig6.write_html('analysis6_baseline_model.html')
 
 print("Analysis 6 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 7: ADVANCED MODELS & COMPARISON
 # ==============================================================================
@@ -409,6 +472,7 @@ print("=" * 70)
 
 print("Analysis 7 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 8: EXPLAINABILITY
 # ==============================================================================
@@ -431,6 +495,7 @@ print("=" * 70)
 
 print("Analysis 8 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 9: FAIRNESS & BIAS AUDIT
 # ==============================================================================
@@ -454,6 +519,7 @@ print("=" * 70)
 
 print("Analysis 9 complete")
 
+# %%
 # ==============================================================================
 # ANALYSIS 10: DEPLOYMENT & CLINICAL INTEGRATION
 # ==============================================================================
@@ -478,6 +544,7 @@ print("=" * 70)
 
 print("Analysis 10 complete")
 
+# %%
 # ==============================================================================
 # SUMMARY STATISTICS
 # ==============================================================================
@@ -495,6 +562,7 @@ summary = pd.DataFrame({
 summary.to_csv('project_summary.csv', index=False)
 print(summary.to_string(index=False))
 
+# %%
 # ==============================================================================
 # NEXT STEPS
 # ==============================================================================
@@ -532,3 +600,8 @@ REMAINING TASKS:
    [ ] All files open; properly named; zip ready; team review complete
 """)
 print(f"End Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+# %%
+
+
+
