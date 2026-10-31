@@ -43,6 +43,11 @@ from sklearn.calibration import calibration_curve
 from sklearn.inspection import permutation_importance, partial_dependence
 from datetime import datetime
 import warnings
+
+from time import perf_counter
+from sklearn.base import clone
+from sklearn.model_selection import StratifiedKFold, cross_validate
+
 warnings.filterwarnings('ignore')
 
 RANDOM_STATE = 42
@@ -1016,9 +1021,20 @@ fig6.show()
 # ANALYSIS 7: ADVANCED MODELS & COMPARISON
 # ==============================================================================
 
-from time import perf_counter
-from sklearn.base import clone
-from sklearn.model_selection import StratifiedKFold, cross_validate
+# TODO: Train at least TWO additional models and compare all of them:
+#   RandomForestClassifier(n_estimators=300, min_samples_leaf=20, class_weight='balanced_subsample', n_jobs=-1)
+#   HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05)
+#   (optional) tune one hyperparameter with a small grid; document what you tried
+# Requirements:
+#   - 5-fold stratified CV ROC AUC on the TRAINING set for each model (StratifiedKFold, shuffle=True)
+#   - Test-set ROC AUC, PR AUC, Brier score via summarize()
+#   - Table -> 'model_results.csv'
+#   - 1x2 figure: ROC curves for all models | calibration curves (sklearn.calibration.calibration_curve)
+#     -> 'analysis7_model_comparison.html'
+#   - Choose a final model and justify it (discrimination, calibration, interpretability, speed)
+#   - Keep its test probabilities in a variable called p_best and the model in best_model
+
+
 
 # Check that features and outcomes remain aligned.
 assert X_train.columns.equals(X_test.columns)
@@ -1261,16 +1277,6 @@ print("=" * 70)
 #     (e.g., discharge to a facility = sicker patient)?
 # Optional: SHAP values (pip install shap) for individual-patient explanations
 
-
-
-print("Analysis 8 complete")
-
-
-# %%
-# ==============================================================================
-# ANALYSIS 9: FAIRNESS & BIAS AUDIT
-# ==============================================================================
-
 from sklearn.inspection import permutation_importance, partial_dependence
 
 print("Calculating feature importance—give it a few minutes.", flush=True)
@@ -1485,9 +1491,29 @@ print("Saved: analysis8_explainability.html")
 print("Saved: analysis7_p_best.csv")
 print("Analysis 8 complete.")
 
+# %%
+# ==============================================================================
+# ANALYSIS 9: FAIRNESS & BIAS AUDIT
+# ==============================================================================
+
+print("\n" + "=" * 70)
+print(" " * 15 + "ANALYSIS 9: FAIRNESS & BIAS AUDIT")
+print("=" * 70)
+
+# TODO: Audit the final model across race, gender and age groups (use g_test)
+#   - Pick an operating point: e.g., flag the top 15% highest-risk patients
+#     thr = np.quantile(p_best, 0.85)
+#   - For each group with >= 100 test patients compute: n, prevalence, ROC AUC, flag rate,
+#     sensitivity, false positive rate, PPV. Table -> 'fairness_audit.csv'
+#   - 1x3 figure: AUC by group | sensitivity by group | flag rate vs prevalence scatter
+#     -> 'analysis9_fairness_audit.html'
+#   - Discuss: which groups are under-flagged relative to their risk? Is that a model problem,
+#     a data problem, or both? What would you do about it before deployment?
+# Hint: pd.Series(p_best, index=X_test.index) lets you align probabilities with g_test
 
 
-print("Analysis 9 complete")
+
+print("Analysis 9 complete"
 
 
 # %%
