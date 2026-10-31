@@ -1173,7 +1173,7 @@ fig7 = make_subplots(
     )
 )
 
-colors = ["#3498db", "#2ecc71", "#9b59b6"]
+colors = [BLUE, RED, GREEN]
 
 for (name, p), color in zip(test_probabilities.items(), colors):
     fpr, tpr, _ = roc_curve(y_test, p)
@@ -1483,7 +1483,6 @@ print("Prior utilization can reflect illness burden and care needs.")
 print("Discharge setting can reflect care needs and available support.")
 print("These are associations; correlated features can share importance.")
 
-# Save aligned probabilities for Shishir's fairness analysis.
 pd.DataFrame(
     {"p_best": p_best},
     index=X_test.index
