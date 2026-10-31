@@ -1020,6 +1020,9 @@ fig6.show()
 # ==============================================================================
 # ANALYSIS 7: ADVANCED MODELS & COMPARISON
 # ==============================================================================
+print("\n" + "=" * 70)
+print(" " * 15 + "ANALYSIS 7: ADVANCED MODELS & COMPARISON")
+print("=" * 70)
 
 # TODO: Train at least TWO additional models and compare all of them:
 #   RandomForestClassifier(n_estimators=300, min_samples_leaf=20, class_weight='balanced_subsample', n_jobs=-1)
