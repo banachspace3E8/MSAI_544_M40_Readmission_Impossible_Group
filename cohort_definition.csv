@@ -1,0 +1,5 @@
+step,rows_remaining
+initial_dataset,101766
+dropped_duplicates,71518
+exclude_impossible_readmissions,69195
+missing_values,69195

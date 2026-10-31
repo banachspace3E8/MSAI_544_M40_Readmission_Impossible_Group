@@ -21,6 +21,7 @@ AI TOOL POLICY: AI tools may be used for debugging, ideating and report/slide cl
 never to write code. Disclose all use (with screenshots) in the technical report.
 """
 
+
 # %%
 # ==============================================================================
 # SETUP & IMPORTS
@@ -57,6 +58,7 @@ print(f"Team: {TEAM_NAME}")
 print(f"Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 70)
 
+
 # %%
 # ==============================================================================
 # DATA LOADING
@@ -73,6 +75,7 @@ print(f"Encounters: {df.shape[0]:,} rows x {df.shape[1]} columns")
 print(f"Unique patients: {df['patient_nbr'].nunique():,}")
 print("\nColumn names:")
 print(df.columns.tolist())
+
 
 # %%
 # ==============================================================================
@@ -99,6 +102,7 @@ print(df[['time_in_hospital', 'num_lab_procedures', 'num_procedures', 'num_medic
 
 print("\nID code descriptions (first rows):")
 print(ids.head(10).to_string(index=False))
+
 
 # %%
 # ==============================================================================
@@ -135,6 +139,7 @@ n1 = len(df)
 steps.append(("dropped_duplicates", n1))
 
 
+
 # %%
 # 1c. Exclude encounters where readmission is impossible or undefined
 # Look up discharge_disposition_id descriptions in `ids`. Patients who died or went to
@@ -158,6 +163,7 @@ df = df[~df['discharge_disposition_id'].isin([11, 13, 14, 19, 20, 21, 25, 26])]
 n2 = len(df)
 steps.append(('exclude_impossible_readmissions', n2))
 
+
 # %%
 # 1d. TODO: Handle remaining missing values (race, payer_code, medical_specialty, diag_1/2/3,
 #     A1Cresult, max_glu_serum). Missing is often informative in clinical data ("not tested").
@@ -179,6 +185,7 @@ df['diag_3'] = df['diag_3'].fillna("Unknown")
 
 n3 = len(df)
 steps.append(("missing_values", n3))
+
 
 # %%
 # 1e. Define the target: readmitted within 30 days
@@ -214,6 +221,7 @@ fig.write_html("analysis1_cohort_funnel.html")
 
 print("Analysis 1 complete")
 
+
 # %%
 # ==============================================================================
 # ANALYSIS 2: DEMOGRAPHICS & READMISSION RATES
@@ -232,6 +240,7 @@ def rate_table(col):
     return t.sort_index()
 
 
+
 age_t, race_t, gender_t = rate_table('age'), rate_table('race'), rate_table('gender')
 print("\nBy age:\n", age_t.round(3))
 print("\nBy race:\n", race_t.round(3))
@@ -248,11 +257,66 @@ fig2.update_layout(height=500,
 fig2.show()
 fig2.write_html('analysis2_demographics.html')
 
-# TODO: Add at least one more demographic view (e.g., age x gender heatmap, or payer type)
 
+# Analysis 2b: 30-day readmission rate by demographic combinations (heatmaps)
 
+df_hm = df[df['gender'].isin(['Male', 'Female'])].copy()
+
+def rate_grid(col, row, sort=False):
+    """30-day readmission rate and patient count for each (row, col) combination."""
+    rate = df_hm.pivot_table(index=row, columns=col, values='readmit_30', aggfunc='mean')
+    pt = df_hm.pivot_table(index=row, columns=col, values='readmit_30',
+                           aggfunc='size', fill_value=0)
+    if sort:
+        order = df_hm.groupby(col)['readmit_30'].mean().sort_values(ascending=True).index
+        rate, pt = rate[order], pt[order]
+    return rate, pt
+
+age_grid = rate_grid('age', 'gender', sort=False)
+payer_grid = rate_grid('payer_code', 'gender', sort=True)
+
+for name, (rate, pt) in [('Age group', age_grid), ('Payer code', payer_grid)]:
+    table = rate.T.map('{:.1%}'.format)
+    table.index.name = name
+    table.columns.name = None
+    print(f"\n30-day readmission rate by {name.lower()} and gender:\n")
+    print(table.to_string())
+
+fig3 = make_subplots(rows=1, cols=2,
+                     subplot_titles=('Age Group x Gender', 'Payer Type x Gender'),
+                     shared_yaxes=True,
+                     horizontal_spacing=0.04,
+                     column_widths=[0.45, 0.55])
+
+for i, (rate, pt) in enumerate([age_grid, payer_grid], start=1):
+    pt_labels = pt.map('{:,}'.format).values
+    hover = [[f'{x} · {y}<br>Rate: {r:.1%}<br>Patients: {c}' if pd.notna(r) else f'{x} · {y}<br>No patients'
+              for x, r, c in zip(rate.columns, rate_row, pt_row)]
+             for y, rate_row, pt_row in zip(rate.index, rate.values, pt_labels)]
+
+    fig3.add_trace(go.Heatmap(
+        z=rate.values,
+        x=rate.columns.astype(str),
+        y=rate.index.astype(str),
+        text=pt_labels,
+        texttemplate='%{z:.1%}<br>%{text} patients',
+        hovertext=hover,
+        hoverinfo='text',
+        coloraxis='coloraxis',
+    ), row=1, col=i)
+
+fig3.update_yaxes(title_text='Gender', row=1, col=1)
+fig3.update_layout(
+    height=450,
+    coloraxis=dict(colorscale='Reds',
+                   colorbar=dict(title='Rate', tickformat='.0%')),
+    title_text='Analysis 2b: 30-Day Readmission Rate by Age Group and Payer Type',
+)
+fig3.show()
+fig3.write_html('analysis2_demographic_heatmaps.html')
 
 print("Analysis 2 complete")
+
 
 # %%
 # ==============================================================================
@@ -284,6 +348,7 @@ print("\nBy prior inpatient visits:\n", inp_t.round(3))
 
 
 print("Analysis 3 complete")
+
 
 # %%
 # ==============================================================================
@@ -339,6 +404,7 @@ df['n_diabetes_meds'] = (df[MED_COLS] != 'No').sum(axis=1)
 
 print("Analysis 4 complete")
 
+
 # %%
 # ==============================================================================
 # ANALYSIS 5: FEATURE ENGINEERING
@@ -385,6 +451,7 @@ feat['age_num'] = df['age'].str.extract(r'\[(\d+)').astype(int)[0] + 5
 
 
 print("Analysis 5 complete")
+
 
 # %%
 # ==============================================================================
@@ -446,6 +513,7 @@ fig6.write_html('analysis6_baseline_model.html')
 
 print("Analysis 6 complete")
 
+
 # %%
 # ==============================================================================
 # ANALYSIS 7: ADVANCED MODELS & COMPARISON
@@ -472,6 +540,7 @@ print("=" * 70)
 
 print("Analysis 7 complete")
 
+
 # %%
 # ==============================================================================
 # ANALYSIS 8: EXPLAINABILITY
@@ -494,6 +563,7 @@ print("=" * 70)
 
 
 print("Analysis 8 complete")
+
 
 # %%
 # ==============================================================================
@@ -518,6 +588,7 @@ print("=" * 70)
 
 
 print("Analysis 9 complete")
+
 
 # %%
 # ==============================================================================
@@ -544,6 +615,7 @@ print("=" * 70)
 
 print("Analysis 10 complete")
 
+
 # %%
 # ==============================================================================
 # SUMMARY STATISTICS
@@ -561,6 +633,7 @@ summary = pd.DataFrame({
 })
 summary.to_csv('project_summary.csv', index=False)
 print(summary.to_string(index=False))
+
 
 # %%
 # ==============================================================================
@@ -601,7 +674,11 @@ REMAINING TASKS:
 """)
 print(f"End Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
+
 # %%
+
+
+
 
 
 
