@@ -1,0 +1,9 @@
+Metric,Value
+Cohort size,69195
+30-day readmission rate,9.002%
+Features,
+Best model,
+Test ROC AUC,
+Test PR AUC,
+Readmissions captured at chosen capacity,
+Top driver,
