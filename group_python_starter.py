@@ -327,82 +327,272 @@ print("\n" + "=" * 70)
 print(" " * 15 + "ANALYSIS 3: UTILIZATION & CLINICAL FACTORS")
 print("=" * 70)
 
-util_cols = ['time_in_hospital', 'num_lab_procedures', 'num_procedures', 'num_medications',
-             'number_outpatient', 'number_emergency', 'number_inpatient', 'number_diagnoses']
-print("\nMean utilization by outcome:")
+
+util_cols = [
+    'time_in_hospital', 'num_lab_procedures',
+    'num_procedures', 'num_medications',
+    'number_outpatient', 'number_emergency',
+    'number_inpatient', 'number_diagnoses'
+]
+
+print('Mean utilization by outcome:')
 print(df.groupby('readmit_30')[util_cols].mean().round(2).T)
 
-# Readmission rate by number of inpatient visits in the prior year (capped at 4+)
-inp = df.copy()
-inp['prior_inpatient'] = inp['number_inpatient'].clip(upper=4).astype(str).replace('4', '4+')
-inp_t = inp.groupby('prior_inpatient')['readmit_30'].agg(['mean', 'count'])
-print("\nBy prior inpatient visits:\n", inp_t.round(3))
+prior = df.assign(
+    prior_inpatient=df['number_inpatient']
+    .clip(upper=4).astype(str).replace({'4': '4+'})
+)
 
-# TODO: Build a 1x3 figure:
-#   Panel 1: bar of readmission rate by prior inpatient visits (inp_t, provided above)
-#   Panel 2: line of readmission rate by length of stay (time_in_hospital, 1-14 days)
-#   Panel 3: bar of readmission rate by HbA1c result (treat missing as "Not tested")
-# Save as 'analysis3_utilization.html'
-# Discussion point for the report: does testing HbA1c relate to readmission? (Strack et al. said yes)
+prior_rates = (
+    prior.groupby('prior_inpatient')['readmit_30']
+    .agg(['mean', 'count'])
+    .reindex(['0', '1', '2', '3', '4+'])
+)
 
+stay_rates = (
+    df.groupby('time_in_hospital')['readmit_30']
+    .agg(['mean', 'count']).sort_index()
+)
 
+a1c_values = (
+    df['A1Cresult']
+    .fillna('Not tested')
+    .replace({'not tested': 'Not tested', 'None': 'Not tested'})
+)
 
-print("Analysis 3 complete")
+a1c_rates = (
+    df.assign(a1c_group=a1c_values)
+    .groupby('a1c_group')['readmit_30']
+    .agg(['mean', 'count'])
+    .reindex(['Not tested', 'Norm', '>7', '>8'])
+)
+
+print('\nPrior inpatient visits:')
+print(prior_rates.round(3))
+print('\nHbA1c results:')
+print(a1c_rates.round(3))
+
+fig3 = make_subplots(
+    rows=1, cols=3,
+    subplot_titles=(
+        'Prior inpatient visits',
+        'Length of stay',
+        'HbA1c result'
+    )
+)
+
+fig3.add_trace(
+    go.Bar(
+        x=prior_rates.index,
+        y=prior_rates['mean'],
+        text=prior_rates['count'],
+        marker_color=BLUE
+    ),
+    row=1, col=1
+)
+
+fig3.add_trace(
+    go.Scatter(
+        x=stay_rates.index,
+        y=stay_rates['mean'],
+        mode='lines+markers',
+        marker_color=PURPLE,
+        customdata=stay_rates[['count']],
+        hovertemplate='Days: %{x}<br>Rate: %{y:.1%}<br>n: %{customdata[0]}<extra></extra>'
+    ),
+    row=1, col=2
+)
+
+fig3.add_trace(
+    go.Bar(
+        x=a1c_rates.index,
+        y=a1c_rates['mean'],
+        text=a1c_rates['count'],
+        marker_color=GREEN
+    ),
+    row=1, col=3
+)
+
+for col in (1, 2, 3):
+    fig3.update_yaxes(tickformat='.0%', row=1, col=col)
+
+fig3.update_layout(
+    title='Analysis 3: Utilization and Clinical Factors',
+    height=530,
+    showlegend=False
+)
+
+fig3.write_html( 'analysis3_utilization.html')
+
+print('Analysis 3 complete')
+fig3.show()
+
 
 
 # %%
 # ==============================================================================
 # ANALYSIS 4: DIAGNOSES & MEDICATIONS
 # ==============================================================================
-
 print("\n" + "=" * 70)
 print(" " * 15 + "ANALYSIS 4: DIAGNOSES & MEDICATIONS")
 print("=" * 70)
 
-
 def icd9_group(code):
-    """Group ICD-9 diagnosis codes into clinical categories following Strack et al. (2014)."""
-    if pd.isna(code):
+    if pd.isna(code) or str(code) in ('Unknown', 'Missing'):
         return 'Missing'
-    s = str(code)
-    if s.startswith(('V', 'E')):
+
+    value = str(code)
+
+    if value.startswith(('V', 'E')):
         return 'Other'
+
     try:
-        c = float(s)
+        number = float(value)
     except ValueError:
         return 'Other'
-    if 390 <= c <= 459 or c == 785: return 'Circulatory'
-    if 460 <= c <= 519 or c == 786: return 'Respiratory'
-    if 520 <= c <= 579 or c == 787: return 'Digestive'
-    if int(c) == 250: return 'Diabetes'
-    if 800 <= c <= 999: return 'Injury'
-    if 710 <= c <= 739: return 'Musculoskeletal'
-    if 580 <= c <= 629 or c == 788: return 'Genitourinary'
-    if 140 <= c <= 239: return 'Neoplasms'
+
+    if 390 <= number <= 459 or int(number) == 785:
+        return 'Circulatory'
+    if 460 <= number <= 519 or int(number) == 786:
+        return 'Respiratory'
+    if 520 <= number <= 579 or int(number) == 787:
+        return 'Digestive'
+    if int(number) == 250:
+        return 'Diabetes'
+    if 800 <= number <= 999:
+        return 'Injury'
+    if 710 <= number <= 739:
+        return 'Musculoskeletal'
+    if 580 <= number <= 629 or int(number) == 788:
+        return 'Genitourinary'
+    if 140 <= number <= 239:
+        return 'Neoplasms'
     return 'Other'
 
-
 df['diag_group'] = df['diag_1'].apply(icd9_group)
-print("\nPrimary diagnosis groups:\n", df['diag_group'].value_counts())
 
-MED_COLS = ['metformin', 'repaglinide', 'nateglinide', 'chlorpropamide', 'glimepiride', 'acetohexamide',
-            'glipizide', 'glyburide', 'tolbutamide', 'pioglitazone', 'rosiglitazone', 'acarbose', 'miglitol',
-            'troglitazone', 'tolazamide', 'insulin', 'glyburide-metformin', 'glipizide-metformin',
-            'glimepiride-pioglitazone', 'metformin-rosiglitazone', 'metformin-pioglitazone']
-# Each medication column is No / Steady / Up / Down
-df['n_meds_changed'] = (df[MED_COLS].isin(['Up', 'Down'])).sum(axis=1)
-df['n_diabetes_meds'] = (df[MED_COLS] != 'No').sum(axis=1)
+MED_COLS = [
+    'metformin', 'repaglinide', 'nateglinide',
+    'chlorpropamide', 'glimepiride', 'acetohexamide',
+    'glipizide', 'glyburide', 'tolbutamide',
+    'pioglitazone', 'rosiglitazone', 'acarbose',
+    'miglitol', 'troglitazone', 'tolazamide',
+    'insulin', 'glyburide-metformin',
+    'glipizide-metformin', 'glimepiride-pioglitazone',
+    'metformin-rosiglitazone', 'metformin-pioglitazone'
+]
 
-# TODO: Build a 1x3 figure:
-#   Panel 1: readmission rate by primary diagnosis group (horizontal bars, sorted)
-#   Panel 2: readmission rate by insulin order (No / Steady / Up / Down)
-#   Panel 3: readmission rate by number of diabetes medications (0, 1, 2, 3+)
-# Save as 'analysis4_diagnoses_medications.html'
-# Optional: which individual medications are most associated with readmission?
+df['n_meds_changed'] = (
+    df[MED_COLS].isin(['Up', 'Down']).sum(axis=1)
+)
 
+df['n_diabetes_meds'] = (
+    df[MED_COLS].ne('No').sum(axis=1)
+)
 
+diag_rates = (
+    df.groupby('diag_group')['readmit_30']
+    .agg(['mean', 'count'])
+    .sort_values('mean')
+)
 
-print("Analysis 4 complete")
+insulin_rates = (
+    df.groupby('insulin')['readmit_30']
+    .agg(['mean', 'count'])
+    .reindex(['No', 'Steady', 'Up', 'Down'])
+)
+
+med_count = (
+    df['n_diabetes_meds']
+    .clip(upper=3)
+    .astype(str)
+    .replace({'3': '3+'})
+)
+
+med_rates = (
+    df.assign(med_group=med_count)
+    .groupby('med_group')['readmit_30']
+    .agg(['mean', 'count'])
+    .reindex(['0', '1', '2', '3+'])
+)
+
+change_rates = (
+    df.groupby('change')['readmit_30']
+    .agg(['mean', 'count'])
+)
+
+print('Primary diagnosis groups:')
+print(diag_rates.round(3))
+
+print('\nInsulin order:')
+print(insulin_rates.round(3))
+
+print('\nMedication changes:')
+print(change_rates.round(3))
+
+print('\nNumber of diabetes medications:')
+print(med_rates.round(3))
+
+fig4 = make_subplots(
+    rows=1, cols=3,
+    subplot_titles=(
+        'Diagnosis category',
+        'Insulin order',
+        'Number of diabetes medications'
+    )
+)
+
+fig4.add_trace(
+    go.Bar(
+        y=diag_rates.index,
+        x=diag_rates['mean'],
+        orientation='h',
+        marker_color=PURPLE,
+        customdata=diag_rates[['count']],
+        hovertemplate='%{y}<br>Rate: %{x:.1%}<br>n: %{customdata[0]}<extra></extra>'
+    ),
+    row=1, col=1
+)
+
+fig4.add_trace(
+    go.Bar(
+        x=insulin_rates.index,
+        y=insulin_rates['mean'],
+        text=insulin_rates['count'],
+        marker_color=BLUE
+    ),
+    row=1, col=2
+)
+
+fig4.add_trace(
+    go.Bar(
+        x=med_rates.index,
+        y=med_rates['mean'],
+        text=med_rates['count'],
+        marker_color=GREEN
+    ),
+    row=1, col=3
+)
+
+fig4.update_xaxes(tickformat='.0%', row=1, col=1)
+
+for col in (2, 3):
+    fig4.update_yaxes(tickformat='.0%', row=1, col=col)
+
+fig4.update_layout(
+    title='Analysis 4: Diagnoses and Medications',
+    height=570,
+    showlegend=False,
+    margin=dict(l=150)
+)
+
+fig4.write_html(
+    'analysis4_diagnoses_medications.html'
+)
+
+print('Analysis 4 complete')
+fig4.show()
+
 
 
 # %%
@@ -414,43 +604,264 @@ print("\n" + "=" * 70)
 print(" " * 15 + "ANALYSIS 5: FEATURE ENGINEERING")
 print("=" * 70)
 
-# Provided helpers: look-ups for the three coded ID columns
-adm_type = ids[ids['id_type'] == 'admission_type_id'].set_index('id')['description']
-adm_src = ids[ids['id_type'] == 'admission_source_id'].set_index('id')['description']
+admission_codes = (
+    ids.loc[ids['id_type'] == 'admission_type_id']
+    .set_index('id')['description']
+)
 
+discharge_codes = (
+    ids.loc[ids['id_type'] == 'discharge_disposition_id']
+    .set_index('id')['description']
+)
 
-def group_discharge(i):
-    """Collapse 30 discharge codes into 4 clinically meaningful groups."""
-    d = disch.get(i, 'Unknown')
-    if d.startswith('Discharged to home') and 'health' not in d: return 'Home'
-    if 'home health' in d.lower() or 'Home IV' in d: return 'Home with services'
-    if any(k in d for k in ['SNF', 'ICF', 'inpatient care', 'hospital']) or 'rehab' in d.lower() or 'nursing' in d.lower():
+def discharge_group(code):
+    desc = str(discharge_codes.get(code, 'Unknown')).lower()
+    if 'home health' in desc or 'home iv' in desc:
+        return 'Home with services'
+    if desc.startswith('discharged to home'):
+        return 'Home'
+    if any(word in desc for word in [
+        'hospital', 'snf', 'icf', 'rehab',
+        'nursing', 'inpatient', 'facility'
+    ]):
         return 'Facility transfer'
     return 'Other/Unknown'
 
+def source_group(code):
+    if code == 7:
+        return 'Emergency room'
+    if code in (1, 2, 3):
+        return 'Referral'
+    if code in (4, 5, 6, 10, 22, 25):
+        return 'Transfer'
+    return 'Other/Unknown'
 
-# Age band "[70-80)" -> 75 (band midpoint)
-feat = pd.DataFrame(index=df.index)
-feat['age_num'] = df['age'].str.extract(r'\[(\d+)').astype(int)[0] + 5
+def top_categories(values, count):
+    series = (
+        values.fillna('Missing')
+        .replace({'Unknown': 'Missing'})
+        .astype(str)
+    )
+    top = series[series.ne('Missing')].value_counts().head(count).index
+    return series.where(
+        series.isin(top) | series.eq('Missing'),
+        'Other'
+    )
 
-# TODO: Build the feature matrix X and target y. Requirements:
-#   - Numeric: all util_cols, n_meds_changed, n_diabetes_meds, total prior visits (sum of the three)
-#   - Binary flags: A1C tested, A1C high (>7 or >8), glucose tested, insulin ordered, medication
-#     changed, any diabetes medication, female
-#   - Categorical (one-hot with pd.get_dummies): race, admission type (map codes with adm_type,
-#     collapse Not Available/NULL/Not Mapped into Unknown), discharge group (group_discharge),
-#     admission source (group into Emergency room / Referral / Transfer / Other), diag_group,
-#     payer (top codes + Other + Missing), medical_specialty (top 8 + Other + Missing)
-#   - Cast everything to float: X = X.astype(float)
-#   - Do NOT include: encounter_id, patient_nbr, readmitted, diag_2/diag_3 raw codes (900+ values)
-# Save a feature dictionary (feature, type, description) as 'feature_dictionary.csv'
-# Save the modeling table as 'cohort_features.csv' (X + y + race, gender, age for the audit)
-# Chart: top 10 positive and top 10 negative correlations with readmit_30 -> 'analysis5_feature_correlations.html'
-# Expected: roughly 55-70 features
+features = pd.DataFrame(index=df.index)
 
+features['age_num'] = (
+    pd.to_numeric(
+        df['age'].str.extract(r'\[(\d+)')[0],
+        errors='coerce'
+    ) + 5
+)
 
+for column in util_cols + [
+    'n_meds_changed', 'n_diabetes_meds'
+]:
+    features[column] = pd.to_numeric(
+        df[column], errors='coerce'
+    )
 
-print("Analysis 5 complete")
+features['total_prior_visits'] = (
+    features[[
+        'number_outpatient',
+        'number_emergency',
+        'number_inpatient'
+    ]].sum(axis=1)
+)
+
+a1c_clean = (
+    df['A1Cresult'].fillna('not tested')
+    .astype(str).str.strip().str.lower()
+)
+
+glucose_clean = (
+    df['max_glu_serum'].fillna('not tested')
+    .astype(str).str.strip().str.lower()
+)
+
+features['a1c_tested'] = (
+    ~a1c_clean.isin([
+        'not tested', 'none', 'nan', 'missing', ''
+    ])
+).astype(int)
+
+features['a1c_high'] = (
+    df['A1Cresult'].isin(['>7', '>8']).astype(int)
+)
+
+features['glucose_tested'] = (
+    ~glucose_clean.isin([
+        'not tested', 'none', 'nan', 'missing', ''
+    ])
+).astype(int)
+
+features['insulin_ordered'] = (
+    df['insulin'].ne('No').astype(int)
+)
+
+features['med_changed'] = (
+    df['change'].eq('Ch').astype(int)
+)
+
+features['any_diabetes_med'] = (
+    df['diabetesMed'].eq('Yes').astype(int)
+)
+
+features['female'] = (
+    df['gender'].eq('Female').astype(int)
+)
+
+admission_group = (
+    df['admission_type_id']
+    .map(admission_codes)
+    .fillna('Unknown')
+)
+
+admission_group = admission_group.where(
+    admission_group.isin([
+        'Emergency', 'Urgent', 'Elective'
+    ]),
+    'Other/Unknown'
+)
+
+categories = pd.DataFrame(index=df.index)
+categories['race'] = df['race'].fillna('Unknown')
+categories['admission_type'] = admission_group
+
+categories['discharge_group'] = (
+    df['discharge_disposition_id']
+    .apply(discharge_group)
+)
+
+categories['source_group'] = (
+    df['admission_source_id']
+    .apply(source_group)
+)
+
+categories['diag_group'] = df['diag_group']
+
+categories['payer'] = top_categories(
+    df['payer_code'], 6
+)
+
+categories['specialty'] = top_categories(
+    df['medical_specialty'], 8
+)
+
+encoded = pd.get_dummies(
+    categories,
+    prefix_sep='__',
+    dtype=float
+)
+
+X = pd.concat(
+    [features, encoded],
+    axis=1
+).astype(float)
+
+X = X.fillna(
+    X.median(numeric_only=True)
+).fillna(0)
+
+y = df['readmit_30'].astype(int)
+
+assert X.index.equals(y.index)
+assert not X.isna().any().any()
+assert not {
+    'encounter_id', 'patient_nbr',
+    'readmitted', 'readmit_30'
+}.intersection(X.columns)
+
+feature_dictionary = pd.DataFrame({
+    'feature': X.columns,
+    'type': [
+        'one-hot' if c in encoded.columns
+        else 'numeric/binary'
+        for c in X.columns
+    ],
+    'description': [
+        'Encoded category: ' + c
+        if c in encoded.columns
+        else 'Clinical predictor: ' + c
+        for c in X.columns
+    ]
+})
+
+feature_dictionary.to_csv(
+      'feature_dictionary.csv',
+    index=False
+)
+
+cohort_features = X.copy()
+cohort_features['readmit_30'] = y
+
+for column in ['race', 'gender', 'age']:
+    cohort_features[column] = df[column]
+
+cohort_features.to_csv(
+    'cohort_features.csv',
+    index=False
+)
+
+correlations = (
+    X.corrwith(y)
+    .replace([np.inf, -np.inf], np.nan)
+    .dropna()
+)
+
+negative = correlations.nsmallest(10)
+positive = correlations.nlargest(10)
+
+fig5 = make_subplots(
+    rows=1, cols=2,
+    subplot_titles=(
+        '10 most negative correlations',
+        '10 most positive correlations'
+    )
+)
+
+fig5.add_trace(
+    go.Bar(
+        x=negative.values,
+        y=negative.index,
+        orientation='h',
+        marker_color=BLUE
+    ),
+    row=1, col=1
+)
+
+fig5.add_trace(
+    go.Bar(
+        x=positive.values,
+        y=positive.index,
+        orientation='h',
+        marker_color=RED
+    ),
+    row=1, col=2
+)
+
+fig5.update_layout(
+    title='Analysis 5: Feature Correlations',
+    height=620,
+    showlegend=False,
+    margin=dict(l=190)
+)
+
+fig5.write_html(
+     'analysis5_feature_correlations.html'
+)
+
+print(
+    'Feature matrix:', X.shape,
+    'Positive rate:', round(y.mean(), 4)
+)
+
+print('Analysis 5 complete')
+fig5.show()
+
 
 
 # %%
@@ -462,56 +873,142 @@ print("\n" + "=" * 70)
 print(" " * 15 + "ANALYSIS 6: BASELINE MODEL (LOGISTIC REGRESSION)")
 print("=" * 70)
 
-# This block assumes you created X (DataFrame) and y (Series) in Analysis 5.
-try:
-    X, y
-except NameError:
-    raise SystemExit("\nSTOP: Analysis 6 needs X and y from Analysis 5. Complete Analysis 5, then re-run.")
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.20,
+    stratify=y,
+    random_state=42
+)
 
-# Stratified 80/20 split; keep the demographic columns of the test rows for the fairness audit.
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y)
-g_test = df.loc[X_test.index, ['race', 'gender', 'age']]
-print(f"Train {len(X_train):,} / Test {len(X_test):,}; positive rate {y_train.mean():.3f} / {y_test.mean():.3f}")
+g_test = df.loc[
+    X_test.index,
+    ['race', 'gender', 'age']
+].copy()
 
-# class_weight='balanced' because only ~9% of patients are readmitted within 30 days
-lr = Pipeline([('scale', StandardScaler()),
-               ('lr', LogisticRegression(max_iter=2000, C=0.1, class_weight='balanced', random_state=RANDOM_STATE))])
+lr = Pipeline([
+    ('scale', StandardScaler()),
+    (
+        'lr',
+        LogisticRegression(
+            max_iter=2000,
+            C=0.1,
+            class_weight='balanced',
+            random_state=42
+        )
+    )
+])
+
 lr.fit(X_train, y_train)
+
 p_lr = lr.predict_proba(X_test)[:, 1]
+pred_lr = (p_lr >= 0.5).astype(int)
 
+res_lr = {
+    'Model': 'Logistic Regression (balanced)',
+    'ROC AUC': round(roc_auc_score(y_test, p_lr), 3),
+    'PR AUC': round(average_precision_score(y_test, p_lr), 3),
+    'Brier': round(brier_score_loss(y_test, p_lr), 4),
+    'Sensitivity@0.5': round(recall_score(y_test, pred_lr), 3),
+    'Precision@0.5': round(
+        precision_score(y_test, pred_lr, zero_division=0), 3
+    )
+}
 
-def summarize(name, p, thr=0.5):
-    """Standard metrics for an imbalanced clinical classifier."""
-    pred = (p >= thr).astype(int)
-    return {'Model': name,
-            'ROC AUC': round(roc_auc_score(y_test, p), 3),
-            'PR AUC': round(average_precision_score(y_test, p), 3),
-            'Brier': round(brier_score_loss(y_test, p), 4),
-            f'Sensitivity@{thr}': round(recall_score(y_test, pred), 3),
-            f'Precision@{thr}': round(precision_score(y_test, pred, zero_division=0), 3)}
-
-
-res_lr = summarize('Logistic Regression (balanced)', p_lr)
-print(res_lr)
-# Expected: ROC AUC about 0.62-0.66. Readmission is a HARD prediction problem; published
-# models on this dataset land in the same range. Do not "fix" this by leaking information.
+print('Train:', len(X_train), 'Test:', len(X_test))
+print('Baseline metrics:')
+print(pd.DataFrame([res_lr]).to_string(index=False))
 
 fpr, tpr, _ = roc_curve(y_test, p_lr)
-prec, rec, _ = precision_recall_curve(y_test, p_lr)
-fig6 = make_subplots(rows=1, cols=2, subplot_titles=('ROC Curve', 'Precision-Recall Curve'))
-fig6.add_trace(go.Scatter(x=fpr, y=tpr, name=f"LR (AUC {res_lr['ROC AUC']})", line_color=BLUE), row=1, col=1)
-fig6.add_trace(go.Scatter(x=[0, 1], y=[0, 1], line=dict(dash='dash', color=GRAY), showlegend=False), row=1, col=1)
-fig6.add_trace(go.Scatter(x=rec, y=prec, name=f"LR (PR AUC {res_lr['PR AUC']})", line_color=RED), row=1, col=2)
-fig6.add_hline(y=y_test.mean(), line_dash='dash', line_color=GRAY, row=1, col=2)
-fig6.update_layout(height=500, title_text='Analysis 6: Baseline Logistic Regression (dashed = no-skill)')
+
+precision, recall, _ = precision_recall_curve(
+    y_test, p_lr
+)
+
+fig6 = make_subplots(
+    rows=1,
+    cols=2,
+    subplot_titles=('ROC Curve', 'Precision-Recall Curve')
+)
+
+fig6.add_trace(
+    go.Scatter(
+        x=fpr,
+        y=tpr,
+        line_color=BLUE,
+        name='Logistic regression'
+    ),
+    row=1, col=1
+)
+
+fig6.add_trace(
+    go.Scatter(
+        x=[0, 1],
+        y=[0, 1],
+        line=dict(color=GRAY, dash='dash'),
+        showlegend=False
+    ),
+    row=1, col=1
+)
+
+fig6.add_trace(
+    go.Scatter(
+        x=recall,
+        y=precision,
+        line_color=RED,
+        name='Logistic regression'
+    ),
+    row=1, col=2
+)
+
+fig6.add_hline(
+    y=y_test.mean(),
+    line_dash='dash',
+    line_color=GRAY,
+    row=1, col=2
+)
+
+fig6.update_layout(
+    title='Analysis 6: Baseline Logistic Regression',
+    height=510
+)
+
+fig6.write_html(
+     'analysis6_baseline_model.html'
+)
+
+coefficients = pd.Series(
+    lr.named_steps['lr'].coef_[0],
+    index=X.columns
+)
+
+print('\n10 strongest positive coefficients:')
+print(coefficients.nlargest(10).round(3))
+
+print('\n10 strongest negative coefficients:')
+print(coefficients.nsmallest(10).round(3))
+
+X_test.to_csv(
+     'analysis6_X_test.csv',
+    index=True,
+    index_label='row_index'
+)
+
+y_test.to_frame('readmit_30').to_csv(
+     'analysis6_y_test.csv',
+    index=True,
+    index_label='row_index'
+)
+
+g_test.to_csv(
+     'analysis6_g_test.csv',
+    index=True,
+    index_label='row_index'
+)
+
+print('Analysis 6 complete')
 fig6.show()
-fig6.write_html('analysis6_baseline_model.html')
 
-# TODO: Print the 10 largest positive and 10 largest negative coefficients with feature names
-
-
-
-print("Analysis 6 complete")
 
 
 # %%
