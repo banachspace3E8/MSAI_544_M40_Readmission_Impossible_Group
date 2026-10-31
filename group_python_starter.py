@@ -43,6 +43,11 @@ from sklearn.calibration import calibration_curve
 from sklearn.inspection import permutation_importance, partial_dependence
 from datetime import datetime
 import warnings
+
+from time import perf_counter
+from sklearn.base import clone
+from sklearn.model_selection import StratifiedKFold, cross_validate
+
 warnings.filterwarnings('ignore')
 
 RANDOM_STATE = 42
@@ -1015,7 +1020,6 @@ fig6.show()
 # ==============================================================================
 # ANALYSIS 7: ADVANCED MODELS & COMPARISON
 # ==============================================================================
-
 print("\n" + "=" * 70)
 print(" " * 15 + "ANALYSIS 7: ADVANCED MODELS & COMPARISON")
 print("=" * 70)
@@ -1034,6 +1038,220 @@ print("=" * 70)
 #   - Keep its test probabilities in a variable called p_best and the model in best_model
 
 
+
+# Check that features and outcomes remain aligned.
+assert X_train.columns.equals(X_test.columns)
+assert X_train.index.equals(y_train.index)
+assert X_test.index.equals(y_test.index)
+
+# Use the same folds for each model.
+cv = StratifiedKFold(
+    n_splits=5, shuffle=True, random_state=42
+)
+
+model_templates = {
+    "Logistic Regression (balanced)": clone(lr),
+
+    "Random Forest": RandomForestClassifier(
+        n_estimators=300,
+        min_samples_leaf=20,
+        class_weight="balanced_subsample",
+        n_jobs=-1,
+        random_state=42
+    ),
+
+    "Histogram Gradient Boosting": HistGradientBoostingClassifier(
+        max_iter=300,
+        learning_rate=0.05,
+        early_stopping=True,
+        random_state=42
+    )
+}
+
+scoring = {
+    "roc_auc": "roc_auc",
+    "pr_auc": "average_precision",
+    "brier": "neg_brier_score"
+}
+
+# Cross-validation
+cv_rows = []
+
+for name, estimator in model_templates.items():
+    print(f"Running 5-fold cross-validation: {name}", flush=True)
+
+    scores = cross_validate(
+        estimator,
+        X_train,
+        y_train,
+        cv=cv,
+        scoring=scoring,
+        n_jobs=1,
+        error_score="raise"
+    )
+
+    cv_rows.append({
+        "Model": name,
+        "CV ROC AUC": scores["test_roc_auc"].mean(),
+        "CV ROC AUC SD": scores["test_roc_auc"].std(ddof=1),
+        "CV PR AUC": scores["test_pr_auc"].mean(),
+        "CV Brier": -scores["test_brier"].mean(),
+        "CV fit seconds": scores["fit_time"].mean()
+    })
+
+    print(
+        f"  Mean CV ROC AUC: {cv_rows[-1]['CV ROC AUC']:.3f}",
+        flush=True
+    )
+
+cv_results = pd.DataFrame(cv_rows)
+
+# Choose from the training CV results.
+# Within 0.005 AUC of the best score, prefer lower Brier, then faster fitting.
+eligible = cv_results[
+    cv_results["CV ROC AUC"]
+    >= cv_results["CV ROC AUC"].max() - 0.005
+]
+
+best_model_name = eligible.sort_values(
+    ["CV Brier", "CV fit seconds"]
+).iloc[0]["Model"]
+
+# Fit the models and score the test set.
+trained_models = {}
+test_probabilities = {}
+test_rows = []
+
+for name, estimator in model_templates.items():
+    print(f"Fitting full training set: {name}", flush=True)
+
+    started = perf_counter()
+    model = clone(estimator).fit(X_train, y_train)
+    fit_seconds = perf_counter() - started
+
+    p = model.predict_proba(X_test)[:, 1]
+    pred = (p >= 0.5).astype(int)
+
+    trained_models[name] = model
+    test_probabilities[name] = p
+
+    test_rows.append({
+        "Model": name,
+        "ROC AUC": roc_auc_score(y_test, p),
+        "PR AUC": average_precision_score(y_test, p),
+        "Brier": brier_score_loss(y_test, p),
+        "Sensitivity@0.5": recall_score(
+            y_test, pred, zero_division=0
+        ),
+        "Precision@0.5": precision_score(
+            y_test, pred, zero_division=0
+        ),
+        "Fit seconds": fit_seconds
+    })
+
+# Keep the final model and its predictions.
+best_model = trained_models[best_model_name]
+p_best = test_probabilities[best_model_name].copy()
+
+model_results = cv_results.merge(
+    pd.DataFrame(test_rows), on="Model"
+)
+model_results["Selected"] = (
+    model_results["Model"] == best_model_name
+)
+model_results.to_csv("model_results.csv", index=False)
+
+# ROC and calibration plots
+fig7 = make_subplots(
+    rows=1,
+    cols=2,
+    subplot_titles=(
+        "Test ROC curves",
+        "Test calibration curves"
+    )
+)
+
+colors = [BLUE, RED, GREEN]
+
+for (name, p), color in zip(test_probabilities.items(), colors):
+    fpr, tpr, _ = roc_curve(y_test, p)
+
+    observed, predicted = calibration_curve(
+        y_test, p, n_bins=10, strategy="quantile"
+    )
+
+    fig7.add_trace(
+        go.Scatter(
+            x=fpr,
+            y=tpr,
+            mode="lines",
+            legendgroup=name,
+            name=f"{name} (AUC {roc_auc_score(y_test, p):.3f})",
+            line=dict(color=color)
+        ),
+        row=1, col=1
+    )
+
+    fig7.add_trace(
+        go.Scatter(
+            x=predicted,
+            y=observed,
+            mode="lines+markers",
+            legendgroup=name,
+            name=name,
+            showlegend=False,
+            line=dict(color=color)
+        ),
+        row=1, col=2
+    )
+
+for col in (1, 2):
+    fig7.add_trace(
+        go.Scatter(
+            x=[0, 1],
+            y=[0, 1],
+            mode="lines",
+            showlegend=False,
+            line=dict(color=GRAY, dash="dash")
+        ),
+        row=1, col=col
+    )
+    fig7.update_xaxes(range=[0, 1], row=1, col=col)
+    fig7.update_yaxes(range=[0, 1], row=1, col=col)
+
+fig7.update_xaxes(
+    title_text="False positive rate", row=1, col=1
+)
+fig7.update_yaxes(
+    title_text="Sensitivity", row=1, col=1
+)
+fig7.update_xaxes(
+    title_text="Mean predicted probability", row=1, col=2
+)
+fig7.update_yaxes(
+    title_text="Observed readmission rate", row=1, col=2
+)
+
+fig7.update_layout(
+    title="Analysis 7: Advanced Models and Comparison",
+    template="plotly_white",
+    height=580,
+    legend=dict(orientation="h", y=-0.25),
+    margin=dict(b=140)
+)
+
+fig7.write_html(
+    "analysis7_model_comparison.html",
+    include_plotlyjs=True
+)
+fig7.show()
+
+print(model_results.round(4).to_string(index=False))
+print("\nSelected using training cross-validation:", best_model_name)
+print("PR AUC is reported as average precision.")
+print("The 0.5 threshold metrics are not the 15% outreach operating point.")
+print("\nSaved: model_results.csv")
+print("Saved: analysis7_model_comparison.html")
 
 print("Analysis 7 complete")
 
@@ -1057,10 +1275,219 @@ print("=" * 70)
 #     (e.g., discharge to a facility = sicker patient)?
 # Optional: SHAP values (pip install shap) for individual-patient explanations
 
+from sklearn.inspection import permutation_importance, partial_dependence
 
+print("Calculating feature importance—give it a few minutes.", flush=True)
 
-print("Analysis 8 complete")
+# Feature importance
+importance_results = {}
 
+for label, model in [("selected", best_model), ("logistic", lr)]:
+    print("Explaining:", label, flush=True)
+
+    importance_results[label] = permutation_importance(
+        model,
+        X_test,
+        y_test,
+        scoring="roc_auc",
+        n_repeats=5,
+        random_state=42,
+        n_jobs=1
+    )
+
+lr_coefficients = pd.Series(
+    lr.named_steps["lr"].coef_[0],
+    index=X_test.columns
+)
+
+feature_importance = pd.DataFrame({
+    "feature": X_test.columns,
+    "importance_mean": importance_results["selected"].importances_mean,
+    "importance_std": importance_results["selected"].importances_std,
+    "lr_importance_mean": importance_results["logistic"].importances_mean,
+    "lr_importance_std": importance_results["logistic"].importances_std,
+    "lr_coefficient": lr_coefficients.to_numpy()
+}).sort_values(
+    "importance_mean", ascending=False
+).reset_index(drop=True)
+
+feature_importance.to_csv(
+    "feature_importance.csv", index=False
+)
+
+# Partial dependence
+pdp_feature = "number_inpatient"
+print("Calculating partial dependence:", pdp_feature, flush=True)
+
+pdp = partial_dependence(
+    best_model,
+    X_test,
+    features=[pdp_feature],
+    method="brute",
+    response_method="predict_proba",
+    grid_resolution=20,
+    percentiles=(0.0, 0.99)
+)
+
+pdp_x = pdp["grid_values"][0]
+pdp_y = pdp["average"][0]
+
+# Plot the results.
+top15 = feature_importance.head(15).iloc[::-1]
+
+fig8 = make_subplots(
+    rows=1,
+    cols=2,
+    subplot_titles=(
+        "Top 15 features: permutation importance",
+        "Partial dependence: prior inpatient visits"
+    ),
+    horizontal_spacing=0.18,
+    column_widths=[0.58, 0.42]
+)
+
+fig8.add_trace(
+    go.Bar(
+        x=top15["importance_mean"],
+        y=top15["feature"],
+        orientation="h",
+        name="Selected model",
+        marker_color=PURPLE,
+        error_x=dict(
+            type="data",
+            array=top15["importance_std"]
+        )
+    ),
+    row=1, col=1
+)
+
+fig8.add_trace(
+    go.Bar(
+        x=top15["lr_importance_mean"],
+        y=top15["feature"],
+        orientation="h",
+        name="Logistic regression",
+        marker_color=BLUE,
+        error_x=dict(
+            type="data",
+            array=top15["lr_importance_std"]
+        )
+    ),
+    row=1, col=1
+)
+
+fig8.add_trace(
+    go.Scatter(
+        x=pdp_x,
+        y=pdp_y,
+        mode="lines+markers",
+        name=pdp_feature,
+        showlegend=False,
+        line=dict(color=GREEN)
+    ),
+    row=1, col=2
+)
+
+fig8.add_vline(
+    x=0,
+    line_dash="dash",
+    line_color=GRAY,
+    row=1, col=1
+)
+
+fig8.update_xaxes(
+    title_text="Decrease in ROC AUC after shuffling",
+    row=1, col=1
+)
+fig8.update_xaxes(
+    title_text="Prior inpatient visits",
+    row=1, col=2
+)
+fig8.update_yaxes(
+    title_text="Average predicted readmission risk",
+    tickformat=".1%",
+    row=1, col=2
+)
+
+fig8.update_layout(
+    title=f"Analysis 8: Explaining {best_model_name}",
+    template="plotly_white",
+    barmode="group",
+    height=800,
+    margin=dict(l=280, r=40, t=100, b=140),
+    legend=dict(orientation="h", y=-0.15)
+)
+
+fig8.add_annotation(
+    x=0,
+    y=-0.25,
+    xref="paper",
+    yref="paper",
+    showarrow=False,
+    xanchor="left",
+    font=dict(size=11),
+    text=(
+        "Error bars: standard deviation across five shuffles. "
+        "Partial dependence is not a causal effect."
+    )
+)
+
+fig8.write_html(
+    "analysis8_explainability.html",
+    include_plotlyjs=True
+)
+fig8.show()
+
+# Compare the main drivers with logistic regression.
+selected_top10 = feature_importance.head(10)["feature"].tolist()
+
+lr_top10 = feature_importance.nlargest(
+    10, "lr_importance_mean"
+)["feature"].tolist()
+
+shared_features = [
+    feature for feature in selected_top10
+    if feature in lr_top10
+]
+
+coefficient_top10 = (
+    lr_coefficients.abs().nlargest(10).index.tolist()
+)
+
+shared_coefficients = [
+    feature for feature in selected_top10
+    if feature in coefficient_top10
+]
+
+print("\nTop 15 features:")
+print(
+    feature_importance.head(15).round(5).to_string(index=False)
+)
+
+print(
+    f"\nShared top-10 permutation features: "
+    f"{len(shared_features)}/10"
+)
+print(", ".join(shared_features))
+
+print("\nOverlap with the baseline's strongest coefficients:")
+print(", ".join(shared_coefficients))
+
+print("\nClinical interpretation:")
+print("Prior utilization can reflect illness burden and care needs.")
+print("Discharge setting can reflect care needs and available support.")
+print("These are associations; correlated features can share importance.")
+
+pd.DataFrame(
+    {"p_best": p_best},
+    index=X_test.index
+).rename_axis("row_index").to_csv("analysis7_p_best.csv")
+
+print("\nSaved: feature_importance.csv")
+print("Saved: analysis8_explainability.html")
+print("Saved: analysis7_p_best.csv")
+
+print("Analysis 8 complete.")
 
 # %%
 # ==============================================================================
