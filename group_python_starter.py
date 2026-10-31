@@ -6,8 +6,8 @@ Saturday: 10 hours work time
 MSAI-544 Application of AI in Healthcare - Residency Group Project
 
 TEAM INFORMATION:
-Team Name: _______________________
-Members:   _______________________
+Team Name: _________Readmission Impossible______________
+Members:   ________Shishir Khanal, Shiva Sai Reddy Gayam, Ruthvik Reddy Rakashi, Rexford Essilfie, Rahul Motha_______________
 
 DELIVERABLES CHECKLIST:
 [ ] Interactive dashboard (HTML / notebook)
@@ -46,10 +46,12 @@ RANDOM_STATE = 42
 # Professional color palette: use consistently across every chart
 BLUE, RED, GREEN, GRAY, PURPLE = '#3498db', '#e74c3c', '#2ecc71', '#95a5a6', '#9b59b6'
 
+TEAM_NAME = "Readmission Impossible"
+
 print("=" * 70)
 print(" " * 12 + "HOSPITAL READMISSION RISK: END-TO-END CLINICAL AI")
 print("=" * 70)
-print("Team: [YOUR TEAM NAME]")
+print(f"Team: {TEAM_NAME}")
 print(f"Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 70)
 
