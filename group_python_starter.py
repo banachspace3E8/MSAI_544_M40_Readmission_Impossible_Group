@@ -1044,7 +1044,7 @@ assert X_train.columns.equals(X_test.columns)
 assert X_train.index.equals(y_train.index)
 assert X_test.index.equals(y_test.index)
 
-# Same five training folds for all three models.
+# Use the same folds for each model.
 cv = StratifiedKFold(
     n_splits=5, shuffle=True, random_state=42
 )
@@ -1074,7 +1074,7 @@ scoring = {
     "brier": "neg_brier_score"
 }
 
-# Cross-validation uses training data only.
+# Cross-validation
 cv_rows = []
 
 for name, estimator in model_templates.items():
@@ -1106,9 +1106,8 @@ for name, estimator in model_templates.items():
 
 cv_results = pd.DataFrame(cv_rows)
 
-# Selection rule defined before inspecting test results:
-# Among models within 0.005 of the highest mean CV ROC AUC,
-# prefer the lowest CV Brier score, then shorter fitting time.
+# Choose from the training CV results.
+# Within 0.005 AUC of the best score, prefer lower Brier, then faster fitting.
 eligible = cv_results[
     cv_results["CV ROC AUC"]
     >= cv_results["CV ROC AUC"].max() - 0.005
@@ -1118,8 +1117,7 @@ best_model_name = eligible.sort_values(
     ["CV Brier", "CV fit seconds"]
 ).iloc[0]["Model"]
 
-# Fit each model on the full training set.
-# Evaluate on the existing held-out test set.
+# Fit the models and score the test set.
 trained_models = {}
 test_probabilities = {}
 test_rows = []
@@ -1151,7 +1149,7 @@ for name, estimator in model_templates.items():
         "Fit seconds": fit_seconds
     })
 
-# Required variables for Analyses 8-10.
+# Keep the final model and its predictions.
 best_model = trained_models[best_model_name]
 p_best = test_probabilities[best_model_name].copy()
 
@@ -1163,7 +1161,7 @@ model_results["Selected"] = (
 )
 model_results.to_csv("model_results.csv", index=False)
 
-# ROC and calibration curves.
+# ROC and calibration plots
 fig7 = make_subplots(
     rows=1,
     cols=2,
@@ -1214,7 +1212,7 @@ for col in (1, 2):
             y=[0, 1],
             mode="lines",
             showlegend=False,
-            line=dict(color="gray", dash="dash")
+            line=dict(color=GRAY, dash="dash")
         ),
         row=1, col=col
     )
@@ -1254,9 +1252,6 @@ print("PR AUC is reported as average precision.")
 print("The 0.5 threshold metrics are not the 15% outreach operating point.")
 print("\nSaved: model_results.csv")
 print("Saved: analysis7_model_comparison.html")
-print("Analysis 7 complete; best_model and p_best are ready.")
-
-
 
 print("Analysis 7 complete")
 
@@ -1284,7 +1279,7 @@ from sklearn.inspection import permutation_importance, partial_dependence
 
 print("Calculating feature importance—give it a few minutes.", flush=True)
 
-# Explain the selected model and compare it with logistic regression.
+# Feature importance
 importance_results = {}
 
 for label, model in [("selected", best_model), ("logistic", lr)]:
@@ -1320,7 +1315,7 @@ feature_importance.to_csv(
     "feature_importance.csv", index=False
 )
 
-# Partial dependence for prior inpatient visits.
+# Partial dependence
 pdp_feature = "number_inpatient"
 print("Calculating partial dependence:", pdp_feature, flush=True)
 
@@ -1337,7 +1332,7 @@ pdp = partial_dependence(
 pdp_x = pdp["grid_values"][0]
 pdp_y = pdp["average"][0]
 
-# Chart: feature importance and partial dependence.
+# Plot the results.
 top15 = feature_importance.head(15).iloc[::-1]
 
 fig8 = make_subplots(
@@ -1357,7 +1352,7 @@ fig8.add_trace(
         y=top15["feature"],
         orientation="h",
         name="Selected model",
-        marker_color="#9b59b6",
+        marker_color=PURPLE,
         error_x=dict(
             type="data",
             array=top15["importance_std"]
@@ -1372,7 +1367,7 @@ fig8.add_trace(
         y=top15["feature"],
         orientation="h",
         name="Logistic regression",
-        marker_color="#3498db",
+        marker_color=BLUE,
         error_x=dict(
             type="data",
             array=top15["lr_importance_std"]
@@ -1388,7 +1383,7 @@ fig8.add_trace(
         mode="lines+markers",
         name=pdp_feature,
         showlegend=False,
-        line=dict(color="#2ecc71")
+        line=dict(color=GREEN)
     ),
     row=1, col=2
 )
@@ -1396,7 +1391,7 @@ fig8.add_trace(
 fig8.add_vline(
     x=0,
     line_dash="dash",
-    line_color="gray",
+    line_color=GRAY,
     row=1, col=1
 )
 
@@ -1443,7 +1438,7 @@ fig8.write_html(
 )
 fig8.show()
 
-# Agreement between the models.
+# Compare the main drivers with logistic regression.
 selected_top10 = feature_importance.head(10)["feature"].tolist()
 
 lr_top10 = feature_importance.nlargest(
@@ -1491,6 +1486,7 @@ pd.DataFrame(
 print("\nSaved: feature_importance.csv")
 print("Saved: analysis8_explainability.html")
 print("Saved: analysis7_p_best.csv")
+
 print("Analysis 8 complete.")
 
 # %%
